@@ -1,0 +1,118 @@
+import { local } from "wix-storage";
+import { saveTiptapExport, loadTiptapExport } from "backend/r2";
+
+const STORAGE_KEY = "lm_student_writing_tiptap_json_v1";
+let latestJsonString = null;
+
+$w.onReady(function () {
+  const el = $w("#tiptap1");
+
+  // --- editor config via attributes ---
+  el.setAttribute("height", "380");                 // fixed height with internal scroll
+  el.setAttribute("placeholder", "Write here...");  // optional
+
+  // Local embedded images (data: URLs)
+  el.setAttribute("imagemode", "local");
+
+  // Guards / limits (tune as you like)
+  el.setAttribute("maximages", String(3));           // guard #1: max images in document
+  el.setAttribute("maximagebytes", String(350000));  // guard: max dataURL length per image
+  el.setAttribute("maxdocbytes", String(2500000));   // guard: max JSON string length total
+
+  // Compression settings (big impact!)
+  el.setAttribute("imagemaxwidth", String(900));     // downscale wider images
+  el.setAttribute("imagequality", String(0.78));     // 0..1
+  el.setAttribute("imageformat", "image/jpeg");      // image/jpeg or image/webp
+
+  // Optional: fun font list (must be JSON string) — limited to 20
+  el.setAttribute(
+    "fonts",
+    JSON.stringify([
+      "Chelsea Market","Patrick Hand","Comic Neue","Fredoka","Pacifico",
+      "Lobster","Press Start 2P","Permanent Marker","Indie Flower","Caveat",
+      "Bangers","Amatic SC","Abril Fatface","Cinzel","Orbitron",
+      "Righteous","Rubik Mono One","VT323","Rock Salt","Kalam",
+    ])
+  );
+
+  // --- load saved content ---
+  const saved = local.getItem(STORAGE_KEY);
+  if (saved) {
+    latestJsonString = saved;
+    el.setAttribute("value", saved);
+  }
+
+  // --- events from the custom element ---
+  el.on("ready", () => {
+    // editor booted
+  });
+
+  el.on("content-changed", (event) => {
+    // Persist TipTap JSON string
+    latestJsonString = event.detail.jsonString;
+    local.setItem(STORAGE_KEY, latestJsonString);
+  });
+
+  el.on("word-count-changed", (event) => {
+    // event.detail.words, event.detail.chars
+  });
+
+  el.on("selection-changed", (event) => {
+    // event.detail.active has toolbar state booleans (if you add them)
+  });
+
+  el.on("focus", () => {});
+  el.on("blur", () => {});
+
+  // ✅ When user clicks the new "Export" button inside the TipTap toolbar
+  el.on("export-request", async (event) => {
+    try {
+      // Prefer the event payload (freshest), fall back to in-memory/storage
+      const jsonString =
+        event?.detail?.jsonString ||
+        latestJsonString ||
+        local.getItem(STORAGE_KEY);
+
+      if (!jsonString) {
+        $w("#code").text = "Nothing to export";
+        return;
+      }
+
+      const tiptapJson = JSON.parse(jsonString);
+      const { code } = await saveTiptapExport(tiptapJson);
+
+      // Display the 7-char retrieval code
+      $w("#code").text = code;
+    } catch (err) {
+      console.error("Export-request error:", err);
+      $w("#code").text = "Export failed";
+    }
+  });
+});
+
+// Optional import button support (requires a Wix input #codeInput + button wired to this function)
+export async function importButton_click() {
+  try {
+    const raw = ($w("#codeInput").value || "").toString();
+    const code = raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7);
+
+    if (code.length !== 7) {
+      $w("#code").text = "Enter a 7-char code";
+      return;
+    }
+
+    const tiptapJson = await loadTiptapExport(code);
+    const jsonString = JSON.stringify(tiptapJson);
+
+    const el = $w("#tiptap1");
+    el.setAttribute("value", jsonString);
+
+    latestJsonString = jsonString;
+    local.setItem(STORAGE_KEY, jsonString);
+
+    $w("#code").text = code;
+  } catch (err) {
+    console.error("Import error:", err);
+    $w("#code").text = "Import failed";
+  }
+}
