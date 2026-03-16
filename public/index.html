@@ -678,7 +678,7 @@ pendingUploads[id]=true;
 if(preview){const attrs={src:preview,'data-upload-id':id};try{const{state:s}=editor;const n=s.schema.nodes.image.create(attrs);editor.view.dispatch(s.tr.insert(pos,n))}catch(e){editor.chain().focus().setImage(attrs).run()}
 createOverlay(id)}
 try{
-const res=await fetch('/api/upload-image',{method:'POST',headers:{'Content-Type':file.type||'application/octet-stream','X-Filename':file.name},body:file});
+const res=await fetch('${location.origin}/api/upload-image',{method:'POST',headers:{'Content-Type':file.type||'application/octet-stream','X-Filename':file.name},body:file});
 const data=await res.json();
 delete pendingUploads[id];removeOverlay(id);
 if(data.ok)replacePlaceholder(id,data.publicUrl);else{removePlaceholder(id);alert('Upload failed: '+(data.error||'Unknown'));}

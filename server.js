@@ -35,8 +35,13 @@ function makeR2Client() {
 // ── R2 Image Upload: server-side proxy (avoids browser CORS on presigned URLs) ──
 app.post('/api/upload-image', express.raw({ type: '*/*', limit: '20mb' }), async (req, res) => {
     try {
+        if (!req.body || !req.body.length) {
+            return res.status(400).json({ ok: false, error: 'Empty file body received' });
+        }
+
         const fileName = req.headers['x-filename'] || 'image.jpg';
-        const fileType = req.headers['content-type'] || 'application/octet-stream';
+        // Strip any parameters (e.g. "image/jpeg; charset=utf-8" → "image/jpeg")
+        const fileType = (req.headers['content-type'] || 'application/octet-stream').split(';')[0].trim();
 
         const s3 = makeR2Client();
         if (!s3) return res.status(500).json({ ok: false, error: 'R2 credentials not configured' });
