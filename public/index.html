@@ -587,6 +587,18 @@ img{max-width:100%;height:auto;margin:0;vertical-align:top}
 img.uploading{opacity:0.5;filter:grayscale(1)}
 .ProseMirror img[data-upload-id]{opacity:0.7}
 .ProseMirror img.ProseMirror-selectednode{outline:2px solid #1976d2;outline-offset:1px;border-radius:2px;cursor:pointer}
+.img-resize-wrap{position:absolute;pointer-events:none;z-index:300;box-sizing:border-box}
+.img-resize-handle{position:absolute;width:12px;height:12px;background:#1976d2;border:2px solid #fff;border-radius:3px;pointer-events:auto;box-shadow:0 1px 4px rgba(0,0,0,0.3);z-index:301;touch-action:none}
+.img-resize-handle.tl{top:-6px;left:-6px;cursor:nwse-resize}
+.img-resize-handle.tr{top:-6px;right:-6px;cursor:nesw-resize}
+.img-resize-handle.bl{bottom:-6px;left:-6px;cursor:nesw-resize}
+.img-resize-handle.br{bottom:-6px;right:-6px;cursor:nwse-resize}
+.img-resize-handle.tm{top:-6px;left:50%;transform:translateX(-50%);cursor:ns-resize}
+.img-resize-handle.bm{bottom:-6px;left:50%;transform:translateX(-50%);cursor:ns-resize}
+.img-resize-handle.ml{top:50%;left:-6px;transform:translateY(-50%);cursor:ew-resize}
+.img-resize-handle.mr{top:50%;right:-6px;transform:translateY(-50%);cursor:ew-resize}
+.img-resize-badge{position:absolute;bottom:-24px;left:50%;transform:translateX(-50%);background:rgba(25,118,210,0.9);color:#fff;font-family:system-ui,-apple-system,sans-serif;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;white-space:nowrap;pointer-events:none;display:none}
+.img-resize-badge.visible{display:block}
 .ProseMirror table{border-collapse:collapse;width:100%;table-layout:fixed;margin:1em 0;border:1px solid #0b1b3a}
 .ProseMirror th,.ProseMirror td{border:1px solid #0b1b3a;padding:8px;vertical-align:top}
 .ProseMirror th{text-align:center;background:#f6f6f6;color:#000;font-weight:700}
@@ -760,6 +772,44 @@ try{
 buildFontMenu();buildColors();buildEmoji();
 editor=new Editor({element:document.getElementById('editor'),extensions:[StarterKit,Underline,TextStyle,Color,Highlight.configure({multicolor:true}),FontFamily,FontSize,TextAlign.configure({types:['heading','paragraph']}),Link.configure({openOnClick:false}),ResizableImage.configure({inline:true,allowBase64:true}),Table.configure({resizable:true}),TableRow,TableHeader,TableCell,CharacterCount],onUpdate:()=>{const j=editor.getJSON();send('content-changed',{json:j,jsonString:JSON.stringify(j),html:editor.getHTML()});updateToolbar()},onSelectionUpdate:updateToolbar,onCreate:()=>{editor.chain().focus().setFontFamily('Comic Sans MS').run();updateToolbar();send('ready',{ok:true})}});
 wire();
+
+/* ── Image Resize System ── */
+let rsWrap=null,rsImg=null,rsPos=null;
+function hideRs(){if(rsWrap){rsWrap.remove();rsWrap=null}rsImg=null;rsPos=null}
+function showRs(img,pos){hideRs();rsImg=img;rsPos=pos;
+const c=document.getElementById('editor');rsWrap=document.createElement('div');rsWrap.className='img-resize-wrap';
+['tl','tm','tr','ml','mr','bl','bm','br'].forEach(function(h){var d=document.createElement('div');d.className='img-resize-handle '+h;d.dataset.h=h;rsWrap.appendChild(d)});
+var badge=document.createElement('div');badge.className='img-resize-badge';badge.id='rs-badge';rsWrap.appendChild(badge);
+c.appendChild(rsWrap);posRs();
+rsWrap.addEventListener('mousedown',onRsDown);rsWrap.addEventListener('touchstart',onRsTouchDown,{passive:false})}
+function posRs(){if(!rsWrap||!rsImg)return;var c=document.getElementById('editor'),cr=c.getBoundingClientRect(),ir=rsImg.getBoundingClientRect(),st=c.scrollTop;
+rsWrap.style.top=(ir.top-cr.top+st)+'px';rsWrap.style.left=(ir.left-cr.left)+'px';rsWrap.style.width=ir.width+'px';rsWrap.style.height=ir.height+'px'}
+function applyRs(){if(!rsImg||rsPos===null)return;var w=rsImg.offsetWidth,h=rsImg.offsetHeight;
+try{var s=editor.state,n=s.doc.nodeAt(rsPos);if(n&&n.type.name==='image'){editor.view.dispatch(s.tr.setNodeMarkup(rsPos,undefined,Object.assign({},n.attrs,{width:w+'px',height:h+'px'})))}}catch(e){console.error('resize apply',e)}}
+function doResize(h,dx,dy,sw,sh,ar){var nw=sw,nh=sh;var corner=h==='tl'||h==='tr'||h==='bl'||h==='br';
+if(corner){nw=(h==='br'||h==='tr')?sw+dx:sw-dx;nw=Math.max(30,nw);nh=Math.round(nw/ar)}
+else if(h==='ml'||h==='mr'){nw=(h==='mr')?sw+dx:sw-dx;nw=Math.max(30,nw)}
+else{nh=(h==='bm')?sh+dy:sh-dy;nh=Math.max(30,nh)}
+rsImg.style.width=nw+'px';rsImg.style.height=nh+'px';posRs();
+var badge=document.getElementById('rs-badge');if(badge){badge.textContent=Math.round(nw)+' x '+Math.round(nh);badge.classList.add('visible')}}
+function onRsDown(e){var hEl=e.target.closest('.img-resize-handle');if(!hEl||!rsImg)return;e.preventDefault();
+var h=hEl.dataset.h,sx=e.clientX,sy=e.clientY,sw=rsImg.offsetWidth,sh=rsImg.offsetHeight,ar=sw/sh;
+function onM(ev){doResize(h,ev.clientX-sx,ev.clientY-sy,sw,sh,ar)}
+function onU(){document.removeEventListener('mousemove',onM);document.removeEventListener('mouseup',onU);
+var badge=document.getElementById('rs-badge');if(badge)badge.classList.remove('visible');applyRs();posRs()}
+document.addEventListener('mousemove',onM);document.addEventListener('mouseup',onU)}
+function onRsTouchDown(e){var hEl=e.target.closest('.img-resize-handle');if(!hEl||!rsImg)return;e.preventDefault();
+var h=hEl.dataset.h,t0=e.touches[0],sx=t0.clientX,sy=t0.clientY,sw=rsImg.offsetWidth,sh=rsImg.offsetHeight,ar=sw/sh;
+function onM(ev){var t=ev.touches[0];doResize(h,t.clientX-sx,t.clientY-sy,sw,sh,ar)}
+function onU(){document.removeEventListener('touchmove',onM);document.removeEventListener('touchend',onU);
+var badge=document.getElementById('rs-badge');if(badge)badge.classList.remove('visible');applyRs();posRs()}
+document.addEventListener('touchmove',onM,{passive:false});document.addEventListener('touchend',onU)}
+document.getElementById('editor').addEventListener('click',function(e){var img=e.target.closest('.ProseMirror img');
+if(img&&!img.getAttribute('data-upload-id')){setTimeout(function(){var sel=editor.state.selection;if(sel.node&&sel.node.type.name==='image')showRs(img,sel.from);else hideRs()},10)}
+else if(!e.target.closest('.img-resize-wrap')){hideRs()}});
+document.getElementById('editor').addEventListener('scroll',function(){if(rsWrap)posRs()},{passive:true});
+/* ── End Image Resize ── */
+
 }catch(e){console.error('Editor boot failed',e)}
 <\/script>
 </body></html>`;
