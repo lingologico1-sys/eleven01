@@ -262,6 +262,10 @@
     <div class="view" id="reader-view">
         <div class="reader-container">
             <div class="audio-container" id="audio-container"></div>
+            <div id="audio-save-row" style="display:none; margin-bottom:12px; display:flex; align-items:center; gap:10px;">
+                <button class="btn btn-secondary" id="btn-save-audio">Save Audio to Cloud</button>
+                <span id="audio-save-status" style="font-size:12px; color:var(--text-secondary);"></span>
+            </div>
             <div class="reader-text" id="reader-text"></div>
         </div>
         <div class="stats-bar">
@@ -280,7 +284,7 @@
     const STORAGE_KEY = 'lingoreader-state';
     const ALL_LANGUAGES = { en:"English", es:"Español", de:"Deutsch", pt:"Português", it:"Italiano", ja:"日本語", hi:"हिन्दी", ar:"العربية", zh_hans:"简体中文", zh_hant:"繁體中文" };
 
-    let state = { readerData: null, alignmentData: null, tiptapData: null, audioBase64: null, tappedIds: new Set(), tapCount: 0 };
+    let state = { readerData: null, alignmentData: null, tiptapData: null, audioBase64: null, audioUrl: null, tappedIds: new Set(), tapCount: 0 };
     let chunkMap = new Map();
     let activeChunkEl = null;
     let currentAudioChunkId = null;
@@ -297,7 +301,7 @@
     // ================================================================
     function saveState() {
         try {
-            const s = { readerData: state.readerData, alignmentData: state.alignmentData, tiptapData: state.tiptapData, audioBase64: state.audioBase64, tappedIds: Array.from(state.tappedIds), tapCount: state.tapCount };
+            const s = { readerData: state.readerData, alignmentData: state.alignmentData, tiptapData: state.tiptapData, audioBase64: state.audioBase64, audioUrl: state.audioUrl, tappedIds: Array.from(state.tappedIds), tapCount: state.tapCount };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
         } catch (e) {}
     }
@@ -308,7 +312,7 @@
             if (!raw) return false;
             const s = JSON.parse(raw);
             if (!s.readerData) return false;
-            state.readerData = s.readerData; state.alignmentData = s.alignmentData || null; state.tiptapData = s.tiptapData || null; state.audioBase64 = s.audioBase64 || null; state.tappedIds = new Set(s.tappedIds || []); state.tapCount = s.tapCount || 0;
+            state.readerData = s.readerData; state.alignmentData = s.alignmentData || null; state.tiptapData = s.tiptapData || null; state.audioBase64 = s.audioBase64 || null; state.audioUrl = s.audioUrl || null; state.tappedIds = new Set(s.tappedIds || []); state.tapCount = s.tapCount || 0;
             return true;
         } catch (e) { return false; }
     }
@@ -598,7 +602,7 @@
             const audioData = await audioRes.json();
 
             setProgress('done');
-            state.readerData = readerData; state.alignmentData = audioData.alignment || null; state.tiptapData = tiptapData; state.audioBase64 = audioData.audio_base64 || null; state.tappedIds = new Set(); state.tapCount = 0;
+            state.readerData = readerData; state.alignmentData = audioData.alignment || null; state.tiptapData = tiptapData; state.audioBase64 = audioData.audio_base64 || null; state.audioUrl = null; state.tappedIds = new Set(); state.tapCount = 0;
             saveState();
             showReaderView();
         } catch (err) { console.error('Pipeline error:', err); setStatus(err.message || 'Something went wrong.', 'error'); }
@@ -626,7 +630,15 @@
         if (srcLang !== 'en') langSelect.value = 'en';
 
         const ac = $('audio-container');
-        ac.innerHTML = state.audioBase64 ? `<audio id="readerAudio" controls src="data:audio/mpeg;base64,${state.audioBase64}"></audio>` : '';
+        ac.innerHTML = state.audioBase64 ? `<audio id="readerAudio" controls src="${state.audioUrl || ('data:audio/mpeg;base64,' + state.audioBase64)}"></audio>` : '';
+
+        const saveRow = $('audio-save-row');
+        if (state.audioBase64) {
+            saveRow.style.display = 'flex';
+            $('audio-save-status').textContent = state.audioUrl ? 'Saved: ' + state.audioUrl : '';
+        } else {
+            saveRow.style.display = 'none';
+        }
 
         const rt = $('reader-text');
         const useTiptap = state.tiptapData && state.tiptapData.html;
@@ -640,6 +652,34 @@
         langSelect.addEventListener('change', () => { if (activeChunkEl) { const c = chunkMap.get(activeChunkEl.getAttribute('data-id')); if (c) showTooltip(activeChunkEl, c); } });
         if (state.audioBase64 && state.alignmentData) setupAudioSync();
     }
+
+    // ── Save Audio to R2 ──
+    $('btn-save-audio').addEventListener('click', async () => {
+        if (!state.audioBase64) return;
+        const btn = $('btn-save-audio');
+        const status = $('audio-save-status');
+        btn.disabled = true;
+        status.textContent = 'Uploading...';
+        try {
+            const res = await fetch('/api/upload-audio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ audioBase64: state.audioBase64, fileName: 'audio.mp3' })
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Upload failed');
+            state.audioUrl = data.publicUrl;
+            saveState();
+            status.textContent = 'Saved: ' + data.publicUrl;
+            // Switch audio element to use the cloud URL
+            const audioEl = document.getElementById('readerAudio');
+            if (audioEl) audioEl.src = data.publicUrl;
+        } catch (e) {
+            status.textContent = 'Error: ' + e.message;
+        } finally {
+            btn.disabled = false;
+        }
+    });
 
     function escapeHtml(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 

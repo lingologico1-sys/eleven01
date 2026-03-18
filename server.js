@@ -18,7 +18,9 @@ const R2_ACCESS_KEY_ID = (process.env.R2_ACCESS_KEY_ID || '').trim();
 const R2_SECRET_ACCESS_KEY = (process.env.R2_SECRET_ACCESS_KEY || '').trim();
 const R2_ACCOUNT_ID = (process.env.R2_ACCOUNT_ID || '').trim();
 const IMAGE_BUCKET_NAME = 'img';
-const IMAGE_DOMAIN = 'https://image.lingologico.com';
+const IMAGE_DOMAIN = 'https://image.lingomondo.app';
+const AUDIO_BUCKET_NAME = 'aud';
+const AUDIO_DOMAIN = 'https://audio.lingomondo.app';
 
 // ── R2 Client ────────────────────────────────────────────────────────────
 function makeR2Client() {
@@ -202,6 +204,38 @@ const apiResponse = await fetch('https://api.openai.com/v1/responses', {
     } catch (err) {
         console.error('Chunk error:', err);
         res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+});
+
+// ── R2 Audio Upload: save base64 audio to R2 ────────────────────────────
+app.post('/api/upload-audio', async (req, res) => {
+    try {
+        const { audioBase64, fileName } = req.body;
+
+        if (!audioBase64) {
+            return res.status(400).json({ ok: false, error: 'audioBase64 is required' });
+        }
+
+        const s3 = makeR2Client();
+        if (!s3) return res.status(500).json({ ok: false, error: 'R2 credentials not configured' });
+
+        const buf = Buffer.from(audioBase64, 'base64');
+        const cleanName = (fileName || 'audio.mp3').replace(/[^a-zA-Z0-9.-]/g, '_');
+        const key = `lingoscribo/${Date.now()}_${cleanName}`;
+
+        await s3.send(new PutObjectCommand({
+            Bucket: AUDIO_BUCKET_NAME,
+            Key: key,
+            ContentType: 'audio/mpeg',
+            Body: buf
+        }));
+
+        const publicUrl = `${AUDIO_DOMAIN}/${key}`;
+        console.log('Audio upload success:', publicUrl);
+        res.json({ ok: true, publicUrl });
+    } catch (err) {
+        console.error('Audio upload error:', err);
+        res.status(500).json({ ok: false, error: err.message || 'Upload failed' });
     }
 });
 
