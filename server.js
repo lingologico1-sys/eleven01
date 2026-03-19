@@ -370,17 +370,33 @@ app.get('/api/lectos/:slug', async (req, res) => {
     }
 });
 
-// ── Stream lecto audio ───────────────────────────────────────────────────
+// ── Stream lecto audio (with range request support for seeking) ─────────
 app.get('/api/lectos/:slug/audio', async (req, res) => {
     try {
         const { slug } = req.params;
         const s3 = makeR2Client();
         if (!s3) return res.status(500).send('R2 credentials not configured');
 
-        const getRes = await s3.send(new GetObjectCommand({ Bucket: LECTO_BUCKET, Key: `aud/${slug}.mp3` }));
-        res.setHeader('Content-Type', 'audio/mpeg');
-        if (getRes.ContentLength) res.setHeader('Content-Length', getRes.ContentLength);
-        getRes.Body.pipe(res);
+        const key = `aud/${slug}.mp3`;
+        const rangeHeader = req.headers.range;
+
+        if (rangeHeader) {
+            // Partial content (range request for seeking)
+            const getRes = await s3.send(new GetObjectCommand({ Bucket: LECTO_BUCKET, Key: key, Range: rangeHeader }));
+            res.status(206);
+            res.setHeader('Content-Type', 'audio/mpeg');
+            res.setHeader('Accept-Ranges', 'bytes');
+            if (getRes.ContentRange) res.setHeader('Content-Range', getRes.ContentRange);
+            if (getRes.ContentLength) res.setHeader('Content-Length', getRes.ContentLength);
+            getRes.Body.pipe(res);
+        } else {
+            // Full content
+            const getRes = await s3.send(new GetObjectCommand({ Bucket: LECTO_BUCKET, Key: key }));
+            res.setHeader('Content-Type', 'audio/mpeg');
+            res.setHeader('Accept-Ranges', 'bytes');
+            if (getRes.ContentLength) res.setHeader('Content-Length', getRes.ContentLength);
+            getRes.Body.pipe(res);
+        }
     } catch (err) {
         console.error('Get audio error:', err);
         res.status(404).send('Audio not found');

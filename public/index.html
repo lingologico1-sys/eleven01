@@ -894,7 +894,7 @@
 
         const ac = $('audio-container');
         const audioSrc = state.audioUrl || (state.audioBase64 ? 'data:audio/mpeg;base64,' + state.audioBase64 : null);
-        ac.innerHTML = audioSrc ? `<audio id="readerAudio" controls src="${audioSrc}"></audio><div class="audio-btns"><button id="btn-rewind" title="Rewind to start">⏮ Rewind</button><button id="btn-sentence" title="Back to sentence start">↩ Sentence start</button></div>` : '';
+        ac.innerHTML = audioSrc ? `<audio id="readerAudio" controls preload="auto" src="${audioSrc}"></audio><div class="audio-btns"><button id="btn-rewind" title="Rewind to start">⏮ Rewind</button><button id="btn-sentence" title="Back to sentence start">↩ Sentence start</button></div>` : '';
 
         const rt = $('reader-text');
         const useTiptap = state.tiptapData && state.tiptapData.html;
@@ -1283,9 +1283,20 @@
             } else {
                 seekTo = sentenceStartTime;
             }
-            console.log('[sentence-btn] curIdx='+curIdx+' sentenceStart='+sentenceStart+' seekTo='+seekTo);
-            audio.currentTime = seekTo;
-            console.log('[sentence-btn] after seek, audio.currentTime='+audio.currentTime);
+            console.log('[sentence-btn] curIdx='+curIdx+' sentenceStart='+sentenceStart+' seekTo='+seekTo+' readyState='+audio.readyState+' duration='+audio.duration);
+            if (audio.readyState >= 1 && isFinite(audio.duration)) {
+                audio.currentTime = seekTo;
+                console.log('[sentence-btn] after seek, audio.currentTime='+audio.currentTime);
+            } else {
+                // Audio metadata not loaded yet — wait for it
+                console.log('[sentence-btn] waiting for loadedmetadata...');
+                audio.addEventListener('loadedmetadata', function onMeta() {
+                    audio.removeEventListener('loadedmetadata', onMeta);
+                    audio.currentTime = seekTo;
+                    console.log('[sentence-btn] after deferred seek, audio.currentTime='+audio.currentTime);
+                });
+                audio.load();
+            }
         });
     }
 
