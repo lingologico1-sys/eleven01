@@ -1268,6 +1268,7 @@
 
             const sentenceStart = findSentenceStart(curIdx);
             const sentenceStartTime = firstValidTime(sentenceStart);
+            console.log('[sentence-btn] curIdx=',curIdx,'sentenceStart=',sentenceStart,'sentenceStartTime=',sentenceStartTime,'chunks[curIdx-2..curIdx]:', chunks.slice(Math.max(0,curIdx-2),curIdx+1).map(c=>({src:JSON.stringify(c.source),as:c.audioStart})));
 
             // If already at/near the sentence start, jump to the previous sentence instead
             if (t <= sentenceStartTime + 0.5 && sentenceStart > 0) {
