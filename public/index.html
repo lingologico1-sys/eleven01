@@ -902,7 +902,7 @@
 
         rt.addEventListener('click', (e) => { e.stopPropagation(); const t = e.target.closest('.chunk'); if (!t) { hideTooltip(); return; } const c = chunkMap.get(t.getAttribute('data-id')); if (c) showTooltip(t, c); });
         langSelect.addEventListener('change', () => { if (activeChunkEl) { const c = chunkMap.get(activeChunkEl.getAttribute('data-id')); if (c) showTooltip(activeChunkEl, c); } });
-        if (state.audioBase64 && state.alignmentData) setupAudioSync();
+        if ((state.audioBase64 || state.audioUrl) && state.alignmentData) setupAudioSync();
     }
 
     // ================================================================
