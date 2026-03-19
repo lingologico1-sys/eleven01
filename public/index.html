@@ -1147,7 +1147,7 @@
             state.alignmentData = data.alignment || null;
             state.tiptapData = data.tiptap_html ? { html: data.tiptap_html } : null;
             state.audioBase64 = null;
-            state.audioUrl = data.audio_url || null;
+            state.audioUrl = data.audio_url ? `/api/lectos/${encodeURIComponent(lecto.slug)}/audio` : null;
             state.tappedIds = new Set();
             state.tapCount = 0;
             saveState();

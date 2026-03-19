@@ -370,6 +370,23 @@ app.get('/api/lectos/:slug', async (req, res) => {
     }
 });
 
+// ── Stream lecto audio ───────────────────────────────────────────────────
+app.get('/api/lectos/:slug/audio', async (req, res) => {
+    try {
+        const { slug } = req.params;
+        const s3 = makeR2Client();
+        if (!s3) return res.status(500).send('R2 credentials not configured');
+
+        const getRes = await s3.send(new GetObjectCommand({ Bucket: LECTO_BUCKET, Key: `aud/${slug}.mp3` }));
+        res.setHeader('Content-Type', 'audio/mpeg');
+        if (getRes.ContentLength) res.setHeader('Content-Length', getRes.ContentLength);
+        getRes.Body.pipe(res);
+    } catch (err) {
+        console.error('Get audio error:', err);
+        res.status(404).send('Audio not found');
+    }
+});
+
 // ── Delete a lecto and all associated files ─────────────────────────────
 app.delete('/api/lectos/:slug', async (req, res) => {
     try {
