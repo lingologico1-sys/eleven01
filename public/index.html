@@ -155,6 +155,14 @@
         .data-url a { color: var(--accent); text-decoration: none; }
         .data-url a:hover { text-decoration: underline; }
         .data-regen-status { margin-top: 8px; font-size: 12px; color: var(--text-secondary); }
+        .lecto-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--border-light); border-radius: 6px; margin-bottom: 6px; transition: background 0.1s; }
+        .lecto-item:hover { background: var(--surface); }
+        .lecto-info { cursor: pointer; flex: 1; min-width: 0; }
+        .lecto-title { font-size: 14px; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .lecto-date { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+        .lecto-delete { flex-shrink: 0; margin-left: 12px; }
+        .lecto-delete .btn-sm { color: var(--error); border-color: rgba(239,154,154,0.4); }
+        .lecto-delete .btn-sm:hover { background: var(--error-bg); }
 
         .tooltip { position: fixed; z-index: 999999; background: var(--cream); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 40px rgba(26,26,46,0.12), 0 2px 8px rgba(26,26,46,0.06); max-width: 320px; width: max-content; opacity: 0; visibility: hidden; transform: translateY(8px) scale(0.98); transition: opacity 0.15s, transform 0.15s, visibility 0.15s; pointer-events: none; }
         .tooltip.visible { opacity: 1; visibility: visible; transform: translateY(0) scale(1); pointer-events: auto; }
@@ -408,6 +416,18 @@
                     <div id="publish-status" style="margin-top:8px; font-size:12px; color:var(--text-secondary);"></div>
                     <div id="publish-result" style="display:none; margin-top:8px;">
                         <div class="data-url"><a id="publish-json-url" href="#" target="_blank"></a><button class="btn-sm" id="btn-copy-publish-url">Copy</button></div>
+                    </div>
+                </div>
+
+                <div class="data-section" style="margin-top:32px; border-top:1px solid var(--border); padding-top:24px;">
+                    <div class="data-section-header">
+                        <div class="data-section-title">Past Lectos</div>
+                        <div class="data-section-actions">
+                            <button class="btn-sm" id="btn-refresh-lectos">Refresh</button>
+                        </div>
+                    </div>
+                    <div id="lectos-list" style="margin-top:8px;">
+                        <div style="font-size:12px; color:var(--text-secondary);">Loading...</div>
                     </div>
                 </div>
 
@@ -879,7 +899,8 @@
         if (srcLang !== 'en') langSelect.value = 'en';
 
         const ac = $('audio-container');
-        ac.innerHTML = state.audioBase64 ? `<audio id="readerAudio" controls src="${state.audioUrl || ('data:audio/mpeg;base64,' + state.audioBase64)}"></audio>` : '';
+        const audioSrc = state.audioUrl || (state.audioBase64 ? 'data:audio/mpeg;base64,' + state.audioBase64 : null);
+        ac.innerHTML = audioSrc ? `<audio id="readerAudio" controls src="${audioSrc}"></audio>` : '';
 
         const rt = $('reader-text');
         const useTiptap = state.tiptapData && state.tiptapData.html;
@@ -1088,6 +1109,87 @@
     });
 
     $('btn-copy-publish-url').addEventListener('click', () => copyToClipboard($('publish-json-url').textContent, $('btn-copy-publish-url')));
+
+    // ================================================================
+    // PAST LECTOS
+    // ================================================================
+    async function loadLectos() {
+        const container = $('lectos-list');
+        container.innerHTML = '<div style="font-size:12px; color:var(--text-secondary);">Loading...</div>';
+        try {
+            const res = await fetch('/api/lectos');
+            const data = await res.json();
+            if (!data.ok || !data.lectos.length) {
+                container.innerHTML = '<div style="font-size:12px; color:var(--text-secondary);">No published lectos found.</div>';
+                return;
+            }
+            container.innerHTML = '';
+            data.lectos.forEach(lecto => {
+                const item = document.createElement('div');
+                item.className = 'lecto-item';
+                const dateStr = lecto.date ? new Date(lecto.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                item.innerHTML = `<div class="lecto-info"><div class="lecto-title">${escapeHtml(lecto.title)}</div><div class="lecto-date">${dateStr}</div></div><div class="lecto-delete"><button class="btn-sm" data-delete-slug="${lecto.slug}">Delete</button></div>`;
+                // Click to load
+                item.querySelector('.lecto-info').addEventListener('click', () => loadLecto(lecto));
+                // Delete
+                item.querySelector('[data-delete-slug]').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteLecto(lecto.slug, lecto.title);
+                });
+                container.appendChild(item);
+            });
+        } catch (e) {
+            container.innerHTML = '<div style="font-size:12px; color:var(--error);">Failed to load lectos: ' + e.message + '</div>';
+        }
+    }
+
+    async function loadLecto(lecto) {
+        try {
+            const res = await fetch(lecto.jsonUrl);
+            if (!res.ok) throw new Error('Failed to fetch lecto JSON');
+            const data = await res.json();
+
+            // Populate state
+            state.readerData = { source_language: data.source_language, chunks: data.chunks };
+            state.alignmentData = data.alignment || null;
+            state.tiptapData = data.tiptap_html ? { html: data.tiptap_html } : null;
+            state.audioBase64 = null;
+            state.audioUrl = data.audio_url || null;
+            state.tappedIds = new Set();
+            state.tapCount = 0;
+            saveState();
+
+            // Switch to reader tab
+            document.querySelectorAll('.reader-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.reader-panel').forEach(p => p.classList.remove('active'));
+            document.querySelector('[data-rtab="reader"]').classList.add('active');
+            $('rpanel-reader').classList.add('active');
+            renderReader();
+        } catch (e) {
+            alert('Failed to load lecto: ' + e.message);
+        }
+    }
+
+    async function deleteLecto(slug, title) {
+        if (!confirm(`Delete "${title}" and all associated files?`)) return;
+        try {
+            const res = await fetch('/api/lectos/' + encodeURIComponent(slug), { method: 'DELETE' });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Delete failed');
+            loadLectos();
+        } catch (e) {
+            alert('Delete failed: ' + e.message);
+        }
+    }
+
+    $('btn-refresh-lectos').addEventListener('click', loadLectos);
+
+    // Load lectos when Data tab is opened
+    const origPopulate = populateDataPanel;
+    populateDataPanel = function() {
+        origPopulate();
+        loadLectos();
+    };
 
     function escapeHtml(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
 

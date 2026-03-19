@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 const app = express();
@@ -310,6 +310,98 @@ app.post('/api/publish', async (req, res) => {
     } catch (err) {
         console.error('Publish error:', err);
         res.status(500).json({ ok: false, error: err.message || 'Publish failed' });
+    }
+});
+
+// ── List published lectos ────────────────────────────────────────────────
+app.get('/api/lectos', async (req, res) => {
+    try {
+        const s3 = makeR2Client();
+        if (!s3) return res.status(500).json({ ok: false, error: 'R2 credentials not configured' });
+
+        const listRes = await s3.send(new ListObjectsV2Command({
+            Bucket: LECTO_BUCKET,
+            Prefix: 'json/'
+        }));
+
+        const items = [];
+        for (const obj of (listRes.Contents || [])) {
+            if (!obj.Key.endsWith('.json')) continue;
+            const slug = obj.Key.replace('json/', '').replace('.json', '');
+            // Fetch the JSON to get the title
+            try {
+                const getRes = await s3.send(new GetObjectCommand({ Bucket: LECTO_BUCKET, Key: obj.Key }));
+                const body = await getRes.Body.transformToString();
+                const data = JSON.parse(body);
+                items.push({
+                    slug,
+                    title: data.title || slug,
+                    date: obj.LastModified ? obj.LastModified.toISOString() : null,
+                    jsonUrl: `${LECTO_DOMAIN}/${obj.Key}`,
+                    audioUrl: data.audio_url || null
+                });
+            } catch (e) {
+                items.push({ slug, title: slug, date: obj.LastModified ? obj.LastModified.toISOString() : null, jsonUrl: `${LECTO_DOMAIN}/${obj.Key}`, audioUrl: null });
+            }
+        }
+
+        // Sort chronologically (newest first)
+        items.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        res.json({ ok: true, lectos: items });
+    } catch (err) {
+        console.error('List lectos error:', err);
+        res.status(500).json({ ok: false, error: err.message || 'Failed to list lectos' });
+    }
+});
+
+// ── Delete a lecto and all associated files ─────────────────────────────
+app.delete('/api/lectos/:slug', async (req, res) => {
+    try {
+        const { slug } = req.params;
+        const s3 = makeR2Client();
+        if (!s3) return res.status(500).json({ ok: false, error: 'R2 credentials not configured' });
+
+        const jsonKey = `json/${slug}.json`;
+
+        // Read the JSON to find associated files
+        let imageKeys = [];
+        try {
+            const getRes = await s3.send(new GetObjectCommand({ Bucket: LECTO_BUCKET, Key: jsonKey }));
+            const body = await getRes.Body.transformToString();
+            const data = JSON.parse(body);
+
+            // Extract image URLs from tiptap_html
+            if (data.tiptap_html) {
+                const imgRegex = new RegExp(`${LECTO_DOMAIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(img/[^"'\\s)]+)`, 'g');
+                let match;
+                while ((match = imgRegex.exec(data.tiptap_html)) !== null) {
+                    imageKeys.push(match[1]);
+                }
+            }
+        } catch (e) {
+            console.warn('Could not read lecto JSON for cleanup:', e.message);
+        }
+
+        // Delete all associated files
+        const keysToDelete = [
+            jsonKey,
+            `aud/${slug}.mp3`,
+            ...imageKeys
+        ];
+
+        for (const key of keysToDelete) {
+            try {
+                await s3.send(new DeleteObjectCommand({ Bucket: LECTO_BUCKET, Key: key }));
+                console.log('Deleted:', key);
+            } catch (e) {
+                console.warn('Failed to delete:', key, e.message);
+            }
+        }
+
+        res.json({ ok: true, deleted: keysToDelete });
+    } catch (err) {
+        console.error('Delete lecto error:', err);
+        res.status(500).json({ ok: false, error: err.message || 'Delete failed' });
     }
 });
 
