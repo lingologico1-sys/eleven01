@@ -1238,6 +1238,13 @@
         if (btnSentence) btnSentence.addEventListener('click', () => {
             const chunks = state.readerData.chunks;
             const t = audio.currentTime;
+            console.log('=== CHUNK DIAGNOSTIC (t=' + t.toFixed(3) + ') ===');
+            chunks.forEach((c, i) => {
+                const trimmed = c.source.trimEnd();
+                const hasPunct = /[.!?]$/.test(trimmed);
+                console.log(`[${i}] as=${c.audioStart !== null ? c.audioStart.toFixed(3) : 'NULL'} punct=${hasPunct} src=${JSON.stringify(c.source)}`);
+            });
+            console.log('=== END DIAGNOSTIC ===');
 
             // Find last chunk that has started (skip null-timestamp chunks rather than breaking on them)
             let curIdx = -1;
