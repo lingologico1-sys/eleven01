@@ -1235,7 +1235,7 @@
 
         // Sentence-start button
         const btnSentence = document.getElementById('btn-sentence');
-        if (btnSentence) btnSentence.addEventListener('click', () => {
+        if (btnSentence) btnSentence.addEventListener('click', (e) => { e.stopPropagation();
             const chunks = state.readerData.chunks;
             const t = audio.currentTime;
             console.log('=== CHUNK DIAGNOSTIC (t=' + t.toFixed(3) + ') ===');
@@ -1277,11 +1277,15 @@
             const sentenceStartTime = firstValidTime(sentenceStart);
 
             // If already on the first chunk of the sentence, jump to the previous sentence instead
+            let seekTo;
             if (curIdx <= sentenceStart && sentenceStart > 0) {
-                audio.currentTime = firstValidTime(findSentenceStart(sentenceStart - 1));
+                seekTo = firstValidTime(findSentenceStart(sentenceStart - 1));
             } else {
-                audio.currentTime = sentenceStartTime;
+                seekTo = sentenceStartTime;
             }
+            console.log('[sentence-btn] curIdx='+curIdx+' sentenceStart='+sentenceStart+' seekTo='+seekTo);
+            audio.currentTime = seekTo;
+            console.log('[sentence-btn] after seek, audio.currentTime='+audio.currentTime);
         });
     }
 
